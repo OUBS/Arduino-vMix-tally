@@ -4,12 +4,12 @@
 */
 
 #include <EEPROM.h>
-#include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
+#include <WiFi.h>
+#include <WebServer.h>
 #include <WiFiClient.h>
-#include <Adafruit_GFX.h>
-#include <WEMOS_Matrix_GFX.h>
 #include "FS.h"
+#include "SPIFFS.h"
+#include <FastLED.h>
 
 // Constants
 const int SsidMaxLength = 64;
@@ -37,7 +37,7 @@ Settings defaultSettings = {
 Settings settings;
 
 // HTTP Server settings
-ESP8266WebServer httpServer(80);
+WebServer httpServer(80);
 char deviceName[32];
 int status = WL_IDLE_STATUS;
 bool apEnabled = false;
@@ -47,7 +47,18 @@ char apPass[64];
 int port = 8099;
 
 // LED settings
-MLED matrix(4);
+//MLED matrix(4);
+// How many leds in your strip?
+#define NUM_LEDS 10 
+
+// For led chips like Neopixels, which have a data line, ground, and power, you just
+// need to define DATA_PIN.  For led chipsets that are SPI based (four wires - data, clock,
+// ground, and power), like the LPD8806, define both DATA_PIN and CLOCK_PIN
+#define DATA_PIN 12
+#define CLOCK_PIN 13
+
+// Define the array of leds
+CRGB leds[NUM_LEDS];
 
 // Tally info
 char currentState = -1;
@@ -56,10 +67,7 @@ const char tallyStateProgram = 1;
 const char tallyStatePreview = 2;
 
 // LED characters
-static const uint8_t PROGMEM C[] = {B00000000, B01111110, B11111111, B10000001, B10000001, B11000011, B01000010, B00000000};
-static const uint8_t PROGMEM L[] = {B00000000, B11111111, B11111111, B11000000, B11000000, B11000000, B11000000, B00000000};
-static const uint8_t PROGMEM P[] = {B00000000, B11111111, B11111111, B00010001, B00010001, B00011111, B00001110, B00000000};
-static const uint8_t PROGMEM S[] = {B00000000, B01001100, B11011110, B10010010, B10010010, B11110110, B01100100, B00000000};
+
 
 // The WiFi client
 WiFiClient client;
@@ -171,50 +179,70 @@ void printSettings()
 // Set led intensity from 0 to 7
 void ledSetIntensity(int intensity)
 {
-  matrix.intensity = intensity;
+  //matrix.intensity = intensity;
 }
 
 // Set LED's off
 void ledSetOff()
 {
-  matrix.clear();
-  matrix.writeDisplay();
+  for(int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = CRGB(0, 0, 0);
+  }
+  FastLED.show(); 
+  //matrix.clear();
+  //matrix.writeDisplay();
 }
 
 // Draw L(ive) with LED's
 void ledSetProgram()
 {
-  matrix.clear();
-  matrix.drawBitmap(0, 0, L, 8, 8, LED_ON);
-  ledSetIntensity(7);
-  matrix.writeDisplay();
+  for(int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = CRGB(255, 0, 0);
+  }
+  FastLED.show(); 
+//  matrix.clear();
+//  matrix.drawBitmap(0, 0, L, 8, 8, LED_ON);
+//  ledSetIntensity(7);
+//  matrix.writeDisplay();
 }
 
 // Draw P(review) with LED's
 void ledSetPreview()
 {
-  matrix.clear();
-  matrix.drawBitmap(0, 0, P, 8, 8, LED_ON);
-  ledSetIntensity(2);
-  matrix.writeDisplay();
+  for(int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = CRGB(0, 255, 0);
+  }
+  FastLED.show(); 
+//  matrix.clear();
+//  matrix.drawBitmap(0, 0, P, 8, 8, LED_ON);
+//  ledSetIntensity(2);
+//  matrix.writeDisplay();
 }
 
 // Draw C(onnecting) with LED's
 void ledSetConnecting()
 {
-  matrix.clear();
-  matrix.drawBitmap(0, 0, C, 8, 8, LED_ON);
-  ledSetIntensity(7);
-  matrix.writeDisplay();
+  for(int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = CRGB(0, 0, 255);
+    FastLED.show();
+  }
+//  matrix.clear();
+//  matrix.drawBitmap(0, 0, C, 8, 8, LED_ON);
+//  ledSetIntensity(7);
+//  matrix.writeDisplay();
 }
 
 // Draw S(ettings) with LED's
 void ledSetSettings()
 {
-  matrix.clear();
-  matrix.drawBitmap(0, 0, S, 8, 8, LED_ON);
-  ledSetIntensity(7);
-  matrix.writeDisplay();
+  for(int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = CRGB(0, 255, 255);
+  }
+  FastLED.show();
+//  matrix.clear();
+//  matrix.drawBitmap(0, 0, S, 8, 8, LED_ON);
+//  ledSetIntensity(7);
+//  matrix.writeDisplay();
 }
 
 // Set tally to off
@@ -297,7 +325,7 @@ void apStart()
   Serial.println(apPass);
 
   WiFi.mode(WIFI_AP);
-  WiFi.hostname(deviceName);
+  WiFi.setHostname(deviceName);
   WiFi.softAP(deviceName, apPass);
   delay(100);
   IPAddress myIP = WiFi.softAPIP();
@@ -462,7 +490,7 @@ void connectToWifi()
   int timeout = 15;
 
   WiFi.mode(WIFI_STA);
-  WiFi.hostname(deviceName);
+  WiFi.setHostname(deviceName);
   WiFi.begin(settings.ssid, settings.pass);
 
   Serial.print("Waiting for connection.");
@@ -553,6 +581,10 @@ void start()
   sprintf(apPass, "%s%s", deviceName, "_access");
 
   connectToWifi();
+  httpServer.on("/", HTTP_GET, rootPageHandler);
+  httpServer.on("/save", HTTP_POST, handleSave);
+  httpServer.serveStatic("/", SPIFFS, "/", "max-age=315360000");
+  httpServer.begin();
 
   if (WiFi.status() == WL_CONNECTED)
   {
@@ -565,11 +597,10 @@ void setup()
   Serial.begin(9600);
   EEPROM.begin(512);
   SPIFFS.begin();
+  LEDS.addLeds<WS2812,DATA_PIN,GRB>(leds,NUM_LEDS);
+  LEDS.setBrightness(50);
 
-  httpServer.on("/", HTTP_GET, rootPageHandler);
-  httpServer.on("/save", HTTP_POST, handleSave);
-  httpServer.serveStatic("/", SPIFFS, "/", "max-age=315360000");
-  httpServer.begin();
+
 
   start();
 }
