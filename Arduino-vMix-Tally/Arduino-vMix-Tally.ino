@@ -46,28 +46,41 @@ char apPass[64];
 // vMix settings
 int port = 8099;
 
-// LED settings
-//MLED matrix(4);
+//// LED settings
 // How many leds in your strip?
-#define NUM_LEDS 10 
+#define NUM_LEDS 10
+#define NUM_LEDS_FRONT 2
 
 // For led chips like Neopixels, which have a data line, ground, and power, you just
 // need to define DATA_PIN.  For led chipsets that are SPI based (four wires - data, clock,
 // ground, and power), like the LPD8806, define both DATA_PIN and CLOCK_PIN
-#define DATA_PIN 12
+#define DATA_PIN 04
 #define CLOCK_PIN 13
+
+// Define the default max led brigness [0 ... 255]
+#define LED_DEFAULT_BRIGHTNESS 230
 
 // Define the array of leds
 CRGB leds[NUM_LEDS];
 
-// Tally info
+// Long press time in ms
+#define BRIGHTNESS_LONG_PRESS_MS 1000
+
+// Possible led brightness states
+#define LED_BRIGHTNESS_STATES 5
+
+// led status variables
+int currentBrightness = LED_DEFAULT_BRIGHTNESS;
+bool ledBothSides = false;
+int mainLeds[NUM_LEDS - NUM_LEDS_FRONT];
+int frontLeds[NUM_LEDS_FRONT];
+int ledAnimationTick;
+
+//// Tally info
 char currentState = -1;
 const char tallyStateOff = 0;
 const char tallyStateProgram = 1;
 const char tallyStatePreview = 2;
-
-// LED characters
-
 
 // The WiFi client
 WiFiClient client;
@@ -77,6 +90,20 @@ int delayTime = 10000;
 // Time measure
 int interval = 5000;
 unsigned long lastCheck = 0;
+
+//// Button settings
+// Buttons assignments
+#define BRIGHTNESS_PIN 13
+#define SELECT_UP_PIN 27
+#define SELECT_DOWN_PIN 12
+#define MODE_PIN 14
+
+// Long press time in ms
+#define BRIGHTNESS_LONG_PRESS_MS 1000
+
+// timestamp variables
+unsigned long brightness_down_ms;
+
 
 // Load settings from EEPROM
 void loadSettings()
@@ -176,47 +203,77 @@ void printSettings()
   Serial.println(settings.tallyNumber);
 }
 
-// Set led intensity from 0 to 7
-void ledSetIntensity(int intensity)
+// Get the location of LEDs in the front section
+void getFrontLeds()
 {
-  //matrix.intensity = intensity;
+  int ledCol = NUM_LEDS / NUM_LEDS_FRONT;
+  for (int i = 0; i < NUM_LEDS; i++) {
+    frontLeds[i] = ledCol * (i + 1) - 1;
+  }
 }
 
-// Set LED's off
+void iterateLedArray(int ledArray[], CRGB::HTMLColorCode color)
+{
+  for (int i=1; i<sizeof ledArray/sizeof ledArray[0]; i++)
+  {
+   leds[ledArray[i]] = color;
+  }
+}
+
+// Get the location of LEDs in main section
+void getMainLeds()
+{
+  int fLed = 0;
+  int mLed = 0;
+  for (int i = 0; i < NUM_LEDS; i++)
+  {
+    while (mLed == frontLeds[fLed]) {
+      mLed++;
+      fLed++;
+    }
+    mainLeds[i] = mLed++;
+  }
+}
+
+// Cycle led intensity
+void ledSetIntensity()
+{
+  int dLedIntesity = LED_DEFAULT_BRIGHTNESS / LED_BRIGHTNESS_STATES;
+  currentBrightness = currentBrightness + dLedIntesity > LED_DEFAULT_BRIGHTNESS ? dLedIntesity : currentBrightness + dLedIntesity;
+}
+
+// Set LED's off except for one indicator light
 void ledSetOff()
 {
-  for(int i = 0; i < NUM_LEDS; i++) {
-    leds[i] = CRGB(0, 0, 0);
+  iterateLedArray(mainLeds, CRGB::Black);
+  leds[mainLeds[0]] = CRGB::Yellow;
+  if (ledBothSides)
+  {
+    iterateLedArray(frontLeds, CRGB::Black);
   }
   FastLED.show(); 
-  //matrix.clear();
-  //matrix.writeDisplay();
 }
 
-// Draw L(ive) with LED's
+// Set leds to red
 void ledSetProgram()
 {
-  for(int i = 0; i < NUM_LEDS; i++) {
-    leds[i] = CRGB(255, 0, 0);
+  iterateLedArray(mainLeds, CRGB::Red);
+  if (ledBothSides)
+  {
+    iterateLedArray(frontLeds, CRGB::Red);
   }
   FastLED.show(); 
-//  matrix.clear();
-//  matrix.drawBitmap(0, 0, L, 8, 8, LED_ON);
-//  ledSetIntensity(7);
-//  matrix.writeDisplay();
 }
 
 // Draw P(review) with LED's
 void ledSetPreview()
 {
-  for(int i = 0; i < NUM_LEDS; i++) {
-    leds[i] = CRGB(0, 255, 0);
+  iterateLedArray(mainLeds, CRGB::Green);
+  if (ledBothSides)
+  {
+    iterateLedArray(frontLeds, CRGB::Green);
   }
   FastLED.show(); 
-//  matrix.clear();
-//  matrix.drawBitmap(0, 0, P, 8, 8, LED_ON);
-//  ledSetIntensity(2);
-//  matrix.writeDisplay();
 }
 
 // Draw C(onnecting) with LED's
@@ -226,10 +283,6 @@ void ledSetConnecting()
     leds[i] = CRGB(0, 0, 255);
     FastLED.show();
   }
-//  matrix.clear();
-//  matrix.drawBitmap(0, 0, C, 8, 8, LED_ON);
-//  ledSetIntensity(7);
-//  matrix.writeDisplay();
 }
 
 // Draw S(ettings) with LED's
@@ -239,10 +292,6 @@ void ledSetSettings()
     leds[i] = CRGB(0, 255, 255);
   }
   FastLED.show();
-//  matrix.clear();
-//  matrix.drawBitmap(0, 0, S, 8, 8, LED_ON);
-//  ledSetIntensity(7);
-//  matrix.writeDisplay();
 }
 
 // Set tally to off
@@ -251,6 +300,36 @@ void tallySetOff()
   Serial.println("Tally off");
 
   ledSetOff();
+}
+
+// refresh tally status
+void refreshTallyLed()
+{
+  switch (currentState)
+      {
+        case '0':
+          tallySetOff();
+          break;
+        case '1':
+          tallySetProgram();
+          break;
+        case '2':
+          tallySetPreview();
+          break;
+        default:
+          tallySetOff();
+      }
+}
+
+// Toggle front section on and off
+void toggleLedSides()
+{
+  ledBothSides = NUM_LEDS_FRONT > 0 ? !ledBothSides : false;
+  if (NUM_LEDS_FRONT && !ledBothSides)
+  {
+    iterateLedArray(frontLeds, CRGB::Black);
+  }
+  refreshTallyLed();
 }
 
 // Set tally to program
@@ -598,9 +677,9 @@ void setup()
   EEPROM.begin(512);
   SPIFFS.begin();
   LEDS.addLeds<WS2812,DATA_PIN,GRB>(leds,NUM_LEDS);
-  LEDS.setBrightness(50);
-
-
+  LEDS.setBrightness(LED_DEFAULT_BRIGHTNESS);
+  getFrontLeds();
+  getMainLeds();
 
   start();
 }
