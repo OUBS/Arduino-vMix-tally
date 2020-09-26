@@ -3,12 +3,18 @@
   Copyright 2019 Thomas Mout
 */
 
+// Force VSCode intellisense to read FastLED correctly 
+#ifndef ESP32
+#define ESP32 1
+#endif
+
 #include <EEPROM.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <WiFiClient.h>
 #include "FS.h"
 #include "SPIFFS.h"
+#include <ESP32TimerInterrupt.h>
 #include <FastLED.h>
 
 // Constants
@@ -55,7 +61,6 @@ int port = 8099;
 // need to define DATA_PIN.  For led chipsets that are SPI based (four wires - data, clock,
 // ground, and power), like the LPD8806, define both DATA_PIN and CLOCK_PIN
 #define DATA_PIN 04
-#define CLOCK_PIN 13
 
 // Define the default max led brigness [0 ... 255]
 #define LED_DEFAULT_BRIGHTNESS 230
@@ -77,12 +82,12 @@ int frontLeds[NUM_LEDS_FRONT];
 int ledAnimationTick;
 
 //// Tally info
-char currentState = -1;
-const char tallyStateOff = 0;
-const char tallyStateProgram = 1;
-const char tallyStatePreview = 2;
+char currentState             = -1;
+const char tallyStateOff      = 0;
+const char tallyStateProgram  = 1;
+const char tallyStatePreview  = 2;
 
-// The WiFi client
+//// The WiFi client
 WiFiClient client;
 int timeout = 10;
 int delayTime = 10000;
@@ -92,18 +97,25 @@ int interval = 5000;
 unsigned long lastCheck = 0;
 
 //// Button settings
+//Debouncer settings
+#define TIMER1_INTERVAL_MS        20
+#define DEBOUNCING_INTERVAL_MS    100
+
+//Debouncing timer
+ESP32Timer BtnTimer(1);
+
 // Buttons assignments
-#define BRIGHTNESS_PIN 13
-#define SELECT_UP_PIN 27
+#define BRIGHTNESS_PIN  13
+#define SELECT_UP_PIN   27
 #define SELECT_DOWN_PIN 12
-#define MODE_PIN 14
+#define MODE_PIN        14
 
 // Long press time in ms
 #define BRIGHTNESS_LONG_PRESS_MS 1000
 
-// timestamp variables
-unsigned long brightness_down_ms;
-
+// Button variables
+volatile bool brightnessPressed     = false;
+volatile bool brightnessLongPressed = false;
 
 // Load settings from EEPROM
 void loadSettings()
@@ -393,6 +405,13 @@ void handleData(String data)
   }
 }
 
+// Brightness button handler
+void IRAM_ATTR brightnessBtnHandler()
+{
+
+
+}
+
 // Start access point
 void apStart()
 {
@@ -406,7 +425,7 @@ void apStart()
   WiFi.mode(WIFI_AP);
   WiFi.setHostname(deviceName);
   WiFi.softAP(deviceName, apPass);
-  delay(100);
+  delay((uint32_t) 100);
   IPAddress myIP = WiFi.softAPIP();
   Serial.print("IP address: ");
   Serial.println(myIP);
@@ -575,7 +594,7 @@ void connectToWifi()
   Serial.print("Waiting for connection.");
   while (WiFi.status() != WL_CONNECTED and timeout > 0)
   {
-    delay(1000);
+    delay((uint32_t) 1000);
     timeout--;
     Serial.print(".");
   }
@@ -680,6 +699,12 @@ void setup()
   LEDS.setBrightness(LED_DEFAULT_BRIGHTNESS);
   getFrontLeds();
   getMainLeds();
+  //Setup button pins
+  pinMode(BRIGHTNESS_PIN, INPUT_PULLUP);
+  if (BtnTimer.attachInterruptInterval(TIMER1_INTERVAL_MS * 1000, brightnessBtnHandler))
+  {
+    
+  }
 
   start();
 }
