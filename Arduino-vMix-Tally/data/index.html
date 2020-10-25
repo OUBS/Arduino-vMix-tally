@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <title>OUBS vMix Tally Config Panel</title>
+    <style>
+        body {
+            background: rgb(31, 30, 30);
+        }
+
+        .main {
+            border-radius: 2em;
+            margin: auto;
+            background: rgb(214, 211, 211);
+            min-width: 50px;
+            max-width: 500px;
+        }
+
+        .logo {
+            background: #000;
+            border-radius: 2em 2em 0 0;
+        }
+
+        .logo img {
+            width: 100%;
+        }
+
+        .content {
+            padding: 1em;
+        }
+
+        .content form {
+            display: table;
+            border-spacing: 1em 0;
+        }
+
+        .content form label {
+            display: table-row;
+        }
+
+        .content form label>* {
+            display: table-cell;
+        }
+    </style>
+    <script>
+        window.addEventListener("load", () => {
+            fetch("/get_ssid").then(data => data.text()).then(ssid => document.getElementById("ssid").value = ssid);
+            fetch("/get_pass").then(data => data.text()).then(pass => document.getElementById("pass").value = pass);
+            fetch("/get_host").then(data => data.text()).then(host => document.getElementById("host").value = host);
+        });
+    </script>
+</head>
+
+<body>
+    <div class="main">
+        <div class="logo">
+            <img class="logo" src="oubs.png" />
+        </div>
+        <div class="content">
+            <form action="/save" method="POST">
+                <label><span>SSID:</span><input type="text" name="ssid" id="ssid" /></label>
+                <label><span>Password:</span><input type="password" name="pass" id="pass" /></label>
+                <label><span>vMix host:</span><input type="text" name="host" id="host" /></label>
+                <label><span>Save</span> <input type="submit" value="Save" /></label>
+            </form>
+        </div>
+
+    </div>
+</body>
+
+</html>
