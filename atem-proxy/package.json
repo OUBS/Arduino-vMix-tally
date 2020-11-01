@@ -1,0 +1,6 @@
+{
+  "name": "atem-proxy",
+  "dependencies": {
+    "atem-connection": "^2.1.0"
+  }
+}
